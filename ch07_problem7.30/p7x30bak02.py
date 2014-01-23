@@ -46,11 +46,304 @@ SOFTWARE."""
 
 
 #-- Turn live-interactive plotting on (makes updated plots appear animated)
-ion()
+#ion()
 
 #-- Adjust the font used on the plots
 font = {'family' : 'serif', 'weight' : 'normal', 'size'   : 8}
 mpl.rc('font', **font)
+
+#@autojit
+def step(previousDirection, currentCoord, relMoveDir):
+    newDirection = (previousDirection + relMoveDir) % 4
+
+    if newDirection == 0:
+        return (currentCoord[0]+1, currentCoord[1])
+    elif newDirection == 1:
+        return (currentCoord[0], currentCoord[1]+1)
+    elif newDirection == 2:
+        return (currentCoord[0]-1, currentCoord[1])
+    else:
+        return (currentCoord[0], currentCoord[1]-1)
+
+
+#@autojit
+def measureChain(chain):
+    """Measures the Euclidean distance from the startpoint to endpoint of
+    a chain"""
+    return ((chain[-1][0] - chain[0][0])**2 + (chain[-1][1] - chain[0][1])**2)
+
+#@autojit
+def simpleAttemptToCreateChain(nSteps, changesInDir=(0,-1,+1)):
+    """State is taken to be direction of travel; there are 4 directions, so
+    four states: right (0), up (1), left (2), and down (3). The only allowed
+    transitions are
+        state -> state + 1 (modulo 4)
+        state -> state - 1 (modulo 4)
+        state -> state
+    
+    Then, it must be checked that the coordinate isn't already in the chain;
+    if it is, then None is returned; otherwise, the algo repeats until a
+    chain of nSteps is reached.
+    """
+
+    #-- Initialize chain to start at (0,0) and move to (0,1) (i.e., move up)
+    #chainCoords = collections.deque([(0,0)])
+    chainCoords = [(0,0), (0,1)]
+    chainX = [0,0]
+    chainY = [0,1]
+    #chainCoords = {(0,0):True}
+    coord = (0,1)
+    #chainCoords.append(coord)
+    #chainCoords.update({coord:True})
+    previousDirection = 1
+    length = 1
+    nChangesInDir = len(changesInDir)
+    while True:
+        relMoveDir = changesInDir[ np.int(np.random.random()*nChangesInDir) ]
+        coord = step(previousDirection, coord, relMoveDir)
+        if coord in chainCoords:
+            return None
+
+        chainCoords.append(coord)
+        #chainCoords.update({coord:True})
+        length += 1
+    
+        if length == nSteps:
+            return chainCoords
+
+def npCreateChain(nSteps, changesInDir=(0,-1,+1)):
+    nChangesInDir = len(changesInDir)
+
+    np.random.random(nSteps)*nChangesInDir
+
+
+class CreateChainWorkerClass(Process):
+    """Direction is direction of travel; there are 4 directions, so
+    right=0, up=1, left=2, and down=3. By default the only allowed transitions
+    are
+        direction -> direction + 1 (modulo 4)
+        direction -> direction - 1 (modulo 4)
+        direction -> direction
+    but the changesInDir allows the user to specify what changes are allowed.
+    Note that each is chosen with equal probability.
+    
+    Next, it is checked that the coordinate isn't already in the chain;
+    if it is in the chain, then None is returned; otherwise, the algo repeats
+    until a chain of nSteps is reached.
+    """
+    # TODO: shared "tries" object contains single int, gets incremented
+    #       for each try
+    
+    def __init__(self, chainsQueue, nSteps, changesInDir=(0,-1,+1), nChains=1):
+        Process.__init__(self)
+        wstdout("0")
+        self.chainsQueue = chainsQueue
+        self.nSteps = nSteps
+        self.changesInDir = changesInDir
+        self.nChains = nChains
+        self.nChangesInDir = len(changesInDir)
+        wstdout("1\n")
+
+    def step(self, previousDirection, currentCoord, relMoveDir):
+        newDirection = (previousDirection + relMoveDir) % 4
+    
+        if newDirection is 0:
+            return (currentCoord[0]+1, currentCoord[1])
+        elif newDirection is 1:
+            return (currentCoord[0], currentCoord[1]+1)
+        elif newDirection is 2:
+            return (currentCoord[0]-1, currentCoord[1])
+        else:
+            return (currentCoord[0], currentCoord[1]-1)
+
+    def run(self):
+        #-- Initialize chain to start at (0,0) and move to (0,1) (i.e., move up)
+        while True:
+            chainCoords = collections.deque([(0,0)], maxlen=self.nSteps+1)
+            coord = (0,1)
+            chainCoords.append(coord)
+            previousDirection = 1
+            thisChainLen = 1
+            while thisChainLen < self.nSteps:
+                if self.chainsQueue.qsize() >= self.nChains:
+                    return
+
+                relMoveDir = self.changesInDir[
+                    np.random.randint(0,self.nChangesInDir)]
+                coord = self.step(previousDirection, coord, relMoveDir)
+                if coord in chainCoords:
+                    break
+
+                chainCoords.append(coord)
+                thisChainLen += 1
+            
+                if thisChainLen == self.nSteps:
+                    self.chainsQueue.put(chainCoords)
+                    break
+
+def createChainWorker(chainsQueue, nSteps, changesInDir=(0,-1,+1), nChains=1):
+    """Direction is direction of travel; there are 4 directions, so
+    right=0, up=1, left=2, and down=3. By default the only allowed transitions
+    are
+        direction -> direction + 1 (modulo 4)
+        direction -> direction - 1 (modulo 4)
+        direction -> direction
+    but the changesInDir allows the user to specify what changes are allowed.
+    Note that each is chosen with equal probability.
+    
+    Next, it is checked that the coordinate isn't already in the chain;
+    if it is in the chain, then None is returned; otherwise, the algo repeats
+    until a chain of nSteps is reached.
+    """
+    # TODO: shared "tries" object contains single int, gets incremented
+    #       for each try
+    
+    #wstdout("0")
+    chainsQueue = chainsQueue
+    nSteps = nSteps
+    nChains = nChains
+    nChangesInDir = len(changesInDir)
+    #wstdout("1")
+
+    #-- Initialize chain to start at (0,0) and move to (0,1) (i.e., move up)
+    while True:
+        #chainCoords = collections.deque([(nSteps,nSteps),(nSteps,nSteps+1)],
+        #                                maxlen=nSteps+1)
+        chainCoords = collections.deque([(0,0), (0,1)])
+        coord = (0,1)
+        previousDirection = 1
+        thisChainLen = 1
+        while thisChainLen < nSteps:
+            relMoveDir = changesInDir[
+                np.random.randint(0,nChangesInDir)]
+            coord = step(previousDirection, coord, relMoveDir)
+            if coord in chainCoords:
+                break
+            chainCoords.append(coord)
+            thisChainLen += 1
+        
+            if thisChainLen == nSteps:
+                chainsQueue.put(chainCoords)
+                break
+
+
+def reptateChainWorker(chainsToReptate, lenSq, nChainsToCompute):
+    chain = chainsToReptate.get()
+    result = chain.reptate()
+    for (childChain, operation) in childChains:
+        if operation == 'move':
+            lenSq.put(measureChain(childChain))
+        if lenSq.len() < nChainsToCompute:
+            chainsToReptate.put(childChain)
+
+
+def simpleCreateChain(nSteps=5, changesInDir=(-1,0,1)):
+    while True:
+        chain = simpleAttemptToCreateChain(nSteps, changesInDir=changesInDir)
+        if chain != None:
+            break
+    return collections.deque(chain, maxlen=nSteps+1)
+
+
+def createChainParallel(nSteps=60, nChains=1, changesInDir=(-1,0,1), nProcs=4):
+    chainsQueue = Queue()
+    args = (chainsQueue, nSteps, changesInDir, nChains)
+    ##pool = Pool(processes=nProcs)
+    #kwargs = {'nSteps':       nSteps,
+    #          'changesInDir': changesInDir,
+    #          'nChains':      nChains,
+    #          'chainsQueue':  chainsQueue
+    #         }
+    #for procN in range(nProcs):
+    #    #pool.apply_async(CreateChainWorkerClass, kwds=kwargs)
+    #    CreateChainWorkerClass, kwds=kwargs)
+    #while chainsQueue.qsize() < nChains:
+    #    time.sleep(0.2)
+    #chains = []
+    #while not chainsQueue.empty():
+    #    chains.append(chainsQueue.get())
+  
+    procs = []
+    for n in range(nProcs):
+        procs.append(Process(target=createChainWorker,args=args))
+        
+    [proc.start() for proc in procs]
+    
+    #while chainsQueue.qsize() < nChains:
+    #    time.sleep(0.1)
+    chains = []
+    #while not chainsQueue.empty():
+    #while len(chains) < nChains:
+    #time.sleep(0.5)
+    chains.append(chainsQueue.get())
+    [proc.terminate() for proc in procs] 
+    return chains
+
+
+#class chain:
+#    def __init__(self, nSteps, initialChain=None):
+#        self.moveForward = True
+#        if initialChain == None:
+#            self.nSteps = nSteps
+#            self.
+#
+#        self.coordinates = collections.deque(coords, maxlen=nSteps)
+
+class reptationChain90:
+    """
+    90-degree-only reptation chain of length nSteps
+    """
+    def __init__(self, nSteps, initialChain):
+        self.nSteps = nSteps
+
+    def reptate(self):
+        pass
+        
+
+
+def createChainReptation(nSteps):
+    """State is taken to be direction of travel; there are 4 directions, so
+    four states: right (0), up (1), left (2), and down (3). The only allowed
+    transitions are
+        state -> state + 1 (modulo 4)
+        state -> state - 1 (modulo 4)
+        state -> state
+    
+    Then, it must be checked that the coordinate isn't already in the chain;
+    if it is, then None is returned; otherwise, the algo repeats until a
+    chain of nSteps is reached.
+    """
+
+    #-- Initialize chain to start at (0,0) and move to (0,1) (i.e., move up)
+    chainCoords = [(0,0)]
+    chainCoords = [(0,0)]
+    coord = (0,1)
+    chainCoords.append(coord)
+    state = 1
+    length = 1
+    #np.random.seed(int(time.time()*1000)%120)
+    #np.random.seed(2)
+    while True:
+        randVal = np.random.randint(low=-1, high=2)
+        state = (state + randVal) % 4
+        
+        if state is 0:
+            coord = (coord[0]+1, coord[1])
+        elif state is 1:
+            coord = (coord[0], coord[1]+1)
+        elif state is 2:
+            coord = (coord[0]-1, coord[1])
+        elif state is 3:
+            coord = (coord[0], coord[1]-1)
+   
+        if coord in chainCoords:
+            return None
+
+        chainCoords.append(coord)
+        length += 1
+    
+        if length == nSteps:
+            return chainCoords
 
 
 def coordsFromAbsDir(absdir):
@@ -66,7 +359,9 @@ def coordsFromAbsDir(absdir):
     y = cumsum(yincr)
     return x, y
 
-
+def plotSnakeAbsDir(absdir):
+    plotSnakeXY(coordsFromDir(absdir))
+    
 def plotSnakeXY(x, y):
     fig, ax = subplots()
     plot(x,y,'r-o',linewidth=3,markersize=6)
@@ -78,12 +373,7 @@ def plotSnakeXY(x, y):
         spine.set_visible(False)
     ax.set_xlim(min(x)-2, max(x)+2)
     ax.set_ylim(min(y)-2, max(y)+2)
-
-
-def plotSnakeAbsDir(absdir):
-    plotSnakeXY(coordsFromDir(absdir))
-
-
+ 
 def plotSnakeCoord(coords):
     x = []
     y = []
@@ -91,18 +381,19 @@ def plotSnakeCoord(coords):
         x.append(c[0])
         y.append(c[1])
     plotSnakeXY(x, y)
-
-
+    
 def newSnake1(nSteps=10):
     #reldir = (random.random(nSteps)*2).astype(int)-1
     reldir = random.randint(-1,2,nSteps)
     absdir = mod(1+cumsum(reldir), 4)
     x, y = coordsFromDir(absdir)
     
+def newSnake2(nSteps=10):
+    pass
 
 class snake:
     """Self-avoiding random walk."""
-    def __init__(self, nsteps, validDirs=(-1,1), recordAfter=None):
+    def __init__(self, nsteps, validDirs=(-1,1)):
         #-- Use a deque as a circular buffer to store the coords 
         self.coords = deque(maxlen=nsteps+1)
         [ self.coords.append((0,y)) for y in range(nsteps+1) ]
@@ -117,13 +408,6 @@ class snake:
          
         self.validDirs = validDirs
         self.nValidDirs = len(validDirs)
-
-        if recordAfter == None:
-            self.recordAfter = nsteps
-        else:
-            self.recordAfter = recordAfter
-
-        self.reptateCount = 0
     
     def plot(self):
         if self.forward:
@@ -160,7 +444,7 @@ class snake:
         else:
             proposedCoord = (self.coords[self.c1][0],self.coords[self.c1][1]-1)
         
-        #-- Exchange head and tail of snake...
+        #-- Exchange head and tail of snake
         if proposedCoord in self.coords:
             self.forward = not self.forward
             if self.forward:
@@ -171,29 +455,27 @@ class snake:
                 self.c1 = 0
                 self.c2 = 1
                 self.c_end = -1
-            if self.reptateCount % self.recordAfter == 0:
-                self.R2.append(self.R2[-1])
-                self.recordStats = False
-
-        #-- ... or prepand / append new coord
+            self.R2.append(self.R2[-1])
+        #-- Or prepand / append new coord
         else:
             if self.forward:
                 self.coords.append(proposedCoord)
             else:
                 self.coords.appendleft(proposedCoord)
+            #print self.coords[self.c1], self.coords[self.c2]
+            self.R2.append((self.coords[self.c1][0]
+                            -self.coords[self.c_end][0])**2+
+                           (self.coords[self.c1][1]
+                            -self.coords[self.c_end][1])**2)
+            
 
-            if self.reptateCount % self.recordAfter == 0:
-                self.R2.append(self.R2[-1])
-                self.R2.append((self.coords[self.c1][0]
-                                -self.coords[self.c_end][0])**2+
-                               (self.coords[self.c1][1]
-                                -self.coords[self.c_end][1])**2)
-                self.recordStats = False
-
-        self.reptateCount += 1            
+#def measureChain(chain):
+#    """Measures the Euclidean distance from the startpoint to endpoint of
+#    a chain"""
+#    return (chain[-1][0] - chain[0][0])**2 + (chain[-1][1] - chain[0][1])**2
 
 
-formatDic = {'sigFigs': 5, 'demarc': "", 'threeSpacing': False, 'rightSep':""}
+formatDic = {'sigFigs': 4, 'demarc': "", 'threeSpacing': False, 'rightSep':""}
 
 
 def powerLaw(x, power, multFact, offset):
@@ -491,19 +773,25 @@ class Simulation:
 if __name__ == "__main__":
     startTime = time.time()
     #-- Instantiate the Simulation object
-    sim = Simulation()
+    #sim = Simulation()
 
-    #-- Try to load the sim data from any previous run; if no data saved
-    #   to disk in the default location, run a new simulation
-    #try:
-    #    sim.loadState()
-    #except Exception as e:
-    #    print "Error({0}: {1}".format(e.errno, e.strerror)
-    #    #sim.runSimulation(targetSuccesses=10, stepsRange=(4,101))
-    sim.runSimulation(targetSuccesses=10, stepsRange=(5,30))
+    ##-- Try to load the sim data from any previous run; if no data saved
+    ##   to disk in the default location, run a new simulation
+    ##try:
+    ##    sim.loadState()
+    ##except Exception as e:
+    ##    print "Error({0}: {1}".format(e.errno, e.strerror)
+    ##    #sim.runSimulation(targetSuccesses=10, stepsRange=(4,101))
+    #sim.runSimulation(targetSuccesses=10, stepsRange=(5,30))
 
-    #-- *Always* perform post-processing and plotting (allows easy modification
-    #   of the postprocessing (curve fitting) and plotting routines
-    #   without needing to re-run the simulation, which can take hours)
-    sim.postproc()
-    sim.plotResults()
+    ##-- *Always* perform post-processing and plotting (allows easy modification
+    ##   of the postprocessing (curve fitting) and plotting routines
+    ##   without needing to re-run the simulation, which can take hours)
+    #sim.postproc()
+    #sim.plotResults()
+
+    ##print simpleCreateChain(nSteps=20)
+    chains = createChainParallel(nSteps=60, nProcs=1, nChains=1)
+    print time.time()-startTime
+    [wstdout(str(len(chain)) + " ") for chain in chains]
+    wstdout("\n")
