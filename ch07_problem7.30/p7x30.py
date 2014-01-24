@@ -10,8 +10,9 @@ import matplotlib as mpl
 from matplotlib import pyplot as plt
 from scipy.optimize import curve_fit
 #import numexpr as ne
-from numba import autojit
+#from numba import autojit
 
+import os
 import sys
 import time
 import cPickle as pickle
@@ -20,7 +21,7 @@ from collections import deque
 from multiprocessing import Process, Queue
 
 from smartFormat import smartFormat
-from genericUtils import wstdout
+from genericUtils import wstdout, timestamp
 
 __author__ = "J.L. Lanfranchi"
 __email__ = "jll1062@phys.psu.edu"
@@ -46,7 +47,7 @@ SOFTWARE."""
 
 
 #-- Turn live-interactive plotting on (makes updated plots appear animated)
-ion()
+#ion()
 
 #-- Adjust the font used on the plots
 font = {'family' : 'serif', 'weight' : 'normal', 'size'   : 8}
@@ -100,7 +101,7 @@ def newSnake1(nSteps=10):
     x, y = coordsFromDir(absdir)
     
 
-class snake:
+class Snake:
     """Self-avoiding random walk."""
     def __init__(self, nsteps, validDirs=(-1,1), recordAfter=None):
         #-- Use a deque as a circular buffer to store the coords 
@@ -133,9 +134,8 @@ class snake:
             rc.reverse()
             plotSnakeCoord(rc)
 
-    def stats(self):
-        self.meanR2 = np.mean(self.R2)
-        return self.meanR2
+    def meanR2(self):
+        return np.mean(self.R2)
     
     def reptate(self):
         dx = self.coords[self.c1][0]-self.coords[self.c2][0]
@@ -245,7 +245,8 @@ class Simulation:
         self.sd = SimulationData()
         self.sd.simulationCompleted = False
         self.sd.postprocCompleted = False
-        self.stateFilename = "p7x28_state.pk"
+        self.stateFilename = os.path.basename(__file__) + ".pk" #"p7x28_state.pk"
+        print self.stateFilename
 
     def saveState(self, filename=None):
         if filename == None:
@@ -289,44 +290,29 @@ class Simulation:
 
         for stepsThisChain in self.sd.stepsInChains:
             startTime = time.time()
-            successfulChains = []
-            chainSquareLengths = []
-            chainFinalCoords = []
-            meanChainFinalCoord = []
+            snake = Snake(stepsThisChain, validDirs=(-1,0,1))
+            #successfulChains = []
+            #chainSquareLengths = []
+            #chainFinalCoords = []
+            #meanChainFinalCoord = []
             nSuccesses = 0
             trialN = 0
             while nSuccesses < self.sd.targetSuccesses:
                 trialN += 1
-                chain = simpleAttemptToCreateChain(stepsThisChain,(-1,0,1))
-                if chain == None:
-                    continue
-                successfulChains.append(chain)
-                chain = np.array(chain)
-                chainSquareLengths.append(measureChain(chain)**2)
-                chainFinalCoords.append(chain[-1,:])
+                #-- Perform as many reptations as chain links, to
+                #   help ensure an independent configuration
+                [ snake.reptate() for n in xrange(stepsThisChain) ]
                 nSuccesses += 1
                 if plotting:
-                    line.set_data(chain[:,0],chain[:,1])
-                    self.ax1.set_xlim(-20,20)
-                    self.ax1.set_ylim(-20,20)
+                    snake.plot()
                     plt.draw()
                     time.sleep(0.005)
-            chainFinalCoords = np.array(chainFinalCoords)
 
-            self.sd.allChainFinalCoords.append(chainFinalCoords)
-            self.sd.allMeanChainFinalCoords.append(meanChainFinalCoord)
-            self.sd.meanChainFinalCoord = np.mean(chainFinalCoords, 0)
-            self.sd.chainSquareLengthAvg.append(np.mean(chainSquareLengths))
-            self.sd.successRatio.append(nSuccesses / trialN)
+            self.sd.chainSquareLengthAvg.append(snake.meanR2())
             self.sd.timingAvg.append( (time.time()-startTime)/nSuccesses )
 
-            sys.stdout.write("\nstepsThisChain = " + str(stepsThisChain) + "\n")
-            sys.stdout.write("  nSuccesses/nTrials = " + str(nSuccesses) + "/" 
-                             + str(trialN) + " = "
-                             + str(self.sd.successRatio[-1]) + "\n")
-            sys.stdout.write("  time/success = " +
-                             str(self.sd.timingAvg[-1]) + "\n")
-            sys.stdout.flush()
+            wstdout("\nstepsThisChain = " + str(stepsThisChain) + "\n")
+            wstdout("  time/success = " + str(self.sd.timingAvg[-1]) + "\n")
 
             if (time.time() - timeLastSaved) > 60*5:
                 self.saveState()
@@ -335,11 +321,7 @@ class Simulation:
         self.sd.allMeanChainFinalCoords = \
                 np.array(self.sd.allMeanChainFinalCoords)
 
-        #-- TODO: mean of final-position vector (r_N vector)
-        #np.sqrt(allMeanChainFinalCoords[:,0]**2+
-        #        allMeanChainFinalCoords[:,1]**2)
         self.sd.simulationCompleted = True
-
         self.saveState()
 
     def postproc(self):
@@ -356,30 +338,6 @@ class Simulation:
         x = self.sd.stepsInChains
 
         #============================================================
-        # Fit success fraction with const * exponential * power law
-        #============================================================
-        y = self.sd.successRatio
-        #-- Weight variance by data size to make small data points equally
-        #   important to fit to as large data points
-        sigma = list(np.array(y))
-        p0 = (-0.117, 0.1, 2)
-        popt1, pcov1 = curve_fit(f=expPower, xdata=x, ydata=y, sigma=sigma,
-                                 p0=p0)
-        self.sd.fit1 = expPower(x, *popt1)
-        self.sd.fit1eqn = expPowerLatex(*popt1) 
-        print popt1, pcov1, "\n"
-       
-        #============================================================
-        # TODO: Fit the final position data
-        #============================================================
-        #y = (self.sd.chainLengthAvg)
-        #sigma = list(np.array(y))
-        #popt2, pcov2 = curve_fit(powerLaw, x, y, sigma=sigma)
-        #self.sd.fit2 = powerLaw(x, *popt2)
-        #self.sd.fit2eqn = powerLawLatex(*popt2) 
-        #print popt2, pcov2, "\n"
-
-        #============================================================
         # Fit R_N^2 with const * power-law + const
         #============================================================
         y = self.sd.chainSquareLengthAvg
@@ -390,20 +348,6 @@ class Simulation:
         self.sd.fit3 = powerLaw(x, *popt3)
         self.sd.fit3eqn = powerLawLatex(*popt3) 
         print popt3, pcov3, "\n"
-
-        #============================================================
-        # Exponential fit to wall-clock time (not as good a fit as
-        #   exp*power, so this is commented out)
-        #============================================================
-        #y = (self.sd.timingAvg)
-        ##p0 = (0.0985, 0.1, 1.65e-5)
-        #p0 = (0.0985, 1)
-        #sigma = list(np.array(y))
-        #popt4, pcov4 = curve_fit(f=exponential, xdata=x, ydata=y, sigma=sigma,
-        #                         p0=p0, )
-        #self.sd.fit4 = exponential(x, *popt4)
-        #self.sd.fit4eqn = exponentialLatex(*popt4) 
-        #print popt4, pcov4, "\n"
 
         #============================================================
         # Exponential * power-law fit to wall-clock time
@@ -432,34 +376,10 @@ class Simulation:
         if not self.sd.postprocCompleted:
             self.postproc()
 
-        self.fig2 = plt.figure(2, figsize=(7,12), dpi=80)
+        self.fig2 = plt.figure(2, figsize=(7,8), dpi=80)
         self.fig2.clf()
-        self.ax21 = self.fig2.add_subplot(311)
-        self.ax21.plot(self.sd.stepsInChains, self.sd.successRatio,
-                       'bo', label="data", markersize=4)
-        self.ax21.plot(self.sd.stepsInChains, self.sd.fit1,
-                       'r-', label=self.sd.fit1eqn, linewidth=2, alpha=0.75)
-        self.ax21.set_title(
-            "Non-intersecting 2D random-walk chains;" +
-            " stop condition: " + str(self.sd.targetSuccesses) +
-            " successfully-built chains")
-        self.ax21.set_ylabel(r"Success fraction $f(N)$")
-        self.ax21.set_yscale('log')
-        self.ax21.grid(which='major', b=True)
-        self.ax21.legend(loc="best", fancybox=True, shadow=True)
 
-        #-- TODO: average of final position plot
-        #self.ax22 = fig2.add_subplot(412)
-        #self.ax22.plot(self.sd.stepsInChains, self.sd.chainLengthAvg,
-        #               'bo', label="data", markersize=4)
-        #self.ax22.plot(self.sd.stepsInChains, self.sd.fit2,
-        #               'r-', label=self.sd.fit2eqn, linewidth=2, alpha=0.75)
-        #self.ax22.set_ylabel(r"$\langle R_N \rangle$")
-        ##self.ax22.set_yscale('log')
-        #ax22.grid(which='major', b=True)
-        #ax22.legend(loc="best", fancybox=True, shadow=True)
-
-        self.ax23 = self.fig2.add_subplot(312)
+        self.ax23 = self.fig2.add_subplot(211)
         self.ax23.plot(self.sd.stepsInChains, self.sd.chainSquareLengthAvg,
                        'bo', label="data", markersize=4)
         self.ax23.plot(self.sd.stepsInChains, self.sd.fit3,
@@ -468,7 +388,7 @@ class Simulation:
         self.ax23.grid(which='major', b=True)
         self.ax23.legend(loc="upper left", fancybox=True, shadow=True)
 
-        self.ax24 = self.fig2.add_subplot(313)
+        self.ax24 = self.fig2.add_subplot(212)
         self.ax24.plot(self.sd.stepsInChains, self.sd.timingAvg,
                        'bo', label="data", markersize=4)
         self.ax24.plot(self.sd.stepsInChains, self.sd.fit4,
@@ -482,8 +402,8 @@ class Simulation:
         self.fig2.tight_layout()
 
         if savePlot:
-            self.fig2.savefig("2014-01-14_problem7x28_plots.pdf")
-            self.fig2.savefig("2014-01-14_problem7x28_plots.png", dpi=120)
+            self.fig2.savefig(timestamp(t=False) + "_problem7x30_plots.pdf")
+            self.fig2.savefig(timestamp(t=False) + "_problem7x30_plots.png", dpi=120)
 
         plt.show()
 
@@ -495,15 +415,16 @@ if __name__ == "__main__":
 
     #-- Try to load the sim data from any previous run; if no data saved
     #   to disk in the default location, run a new simulation
-    #try:
-    #    sim.loadState()
-    #except Exception as e:
-    #    print "Error({0}: {1}".format(e.errno, e.strerror)
-    #    #sim.runSimulation(targetSuccesses=10, stepsRange=(4,101))
-    sim.runSimulation(targetSuccesses=10, stepsRange=(5,30))
+    try:
+        sim.loadState()
+    except Exception as e:
+        print "Error({0}: {1}".format(e.errno, e.strerror)
+        #sim.runSimulation(targetSuccesses=10, stepsRange=(4,101))
+        sim.runSimulation(targetSuccesses=100, stepsRange=(5,500))
 
     #-- *Always* perform post-processing and plotting (allows easy modification
     #   of the postprocessing (curve fitting) and plotting routines
     #   without needing to re-run the simulation, which can take hours)
     sim.postproc()
     sim.plotResults()
+    plt.show()
