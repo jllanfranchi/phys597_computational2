@@ -32,8 +32,8 @@ from scipy.weave import inline, converters
 
 # <codecell>
 
-nRows = 250
-nCols = 250
+nRows = 25
+nCols = 25
 size = (nRows, nCols)
 grid = np.zeros(size)
 #interior = np.zeros(size)
@@ -86,16 +86,20 @@ out = inline(code,
              ['nRows', 'nCols', 'grid', 'metal', 'thresh', 'maxIter'],
              type_converters=converters.blitz)
 print out
-bone()
-fig1 = figure(1)
-imshow(origGrid, interpolation='none');
+spectral()
+fig1 = figure(figsize=(5,3))
+imshow(origGrid, interpolation='nearest');
+axis('image')
+axis('off')
 title(r"Initial conditions")
 colorbar()
-axis('image')
-fig2 = figure(2)
-imshow(grid, interpolation='none');
+tight_layout()
+fig2 = figure(figsize=(5,3))
+imshow(grid, interpolation='nearest');
 title(r"Solution found")
+axis('off')
 colorbar()
+tight_layout()
 
 # <headingcell level=2>
 
@@ -123,7 +127,8 @@ class Grid2D:
     def basicBoundaries(self):
         self.grid += self.metal
         
-    def lrtbBoundaries(self, left, right, top, bottom):
+    def lrtbBoundaries(self, left=0, right=0, top=0, bottom=0):
+        self.IClrtb = (left, right, top, bottom)
         self.grid = np.zeros(self.sz)
         self.grid[:,0] = left
         self.grid[:,-1] = right
@@ -306,15 +311,21 @@ class Grid2D:
                     break
         
 
-    def plotResults(self):
-        bone()
-        fig1 = figure()
-        imshow(self.origGrid, interpolation='none');
+    def plotResults(self, plotIC=False):
+        spectral()
+        if plotIC:
+            fig1 = figure(figsize=(4,3), dpi=600)
+            imshow(self.origGrid, interpolation='nearest')
+            axis('image')
+            title(r"$\mathrm{IC_{l,r,t,b}}=$"+str(self.IClrtb))
+            axis('off')
+            colorbar()
+        fig2 = figure(figsize=(4,3), dpi=600)
+        imshow(self.grid, interpolation='nearest');
+        title(r"$\mathrm{IC_{l,r,t,b}}=$"+str(self.IClrtb))
+        axis('off')
         colorbar()
-        axis('image')
-        fig2 = figure()
-        imshow(self.grid, interpolation='none');
-        colorbar()
+        tight_layout()
 
 # <markdowncell>
 
@@ -323,7 +334,8 @@ class Grid2D:
 # <codecell>
 
 g2d = Grid2D(25,25)
-g2d.lrtbBoundaries(1,0,1,-2)
+IC = (1,0,1,-2)
+g2d.lrtbBoundaries(*IC)
 maxDiff, iterN = g2d.gaussSeidelSolver(tol=1e-5, maxIter=1000)
 print "max diff:", maxDiff
 print "number of iterations:", iterN
@@ -374,7 +386,7 @@ bcs = [(1,0,1,-2), (1,1,1,-2), (1,1,1,-200), (1,1,1,1)]
 gridLen = 25
 grids = []
 
-f = figure()
+f = figure(figsize=(7,4))
 ax = f.add_subplot(111)
 for bc in bcs:
     iterations = []
@@ -400,10 +412,10 @@ ax.legend(loc='best');
 tol = 1e-5
 wList = np.arange(1,2.0,0.01)
 bcs = [(1,0,1,-2), (1,1,1,-2), (1,1,1,-200), (1,1,1,1)]
-gridLen = 50
+gridLen = 100
 grids = []
 
-f = figure()
+f = figure(figsize=(7,4))
 ax = f.add_subplot(111)
 for bc in bcs:
     iterations = []
@@ -438,7 +450,6 @@ ax.legend(loc='best');
 
 for (g,bc) in zip(grids, bcs):
     g.plotResults();
-    title(str(bc));
 
 # <markdowncell>
 
