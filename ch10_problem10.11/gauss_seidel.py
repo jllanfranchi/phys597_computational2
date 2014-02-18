@@ -381,7 +381,7 @@ g2d.plotResults()
 # <codecell>
 
 tol = 1e-5
-wList = np.arange(1,2.0,0.005)
+wList = np.arange(1,2.0,0.01)
 bcs = [(1,0,1,-2), (1,1,1,-2), (1,1,1,-200), (1,1,1,1)]
 gridLen = 25
 grids = []
@@ -398,7 +398,7 @@ for bc in bcs:
         iterations.append(iterN)
         maxDiffs.append(maxDiff)
         grids.append(g2d)
-    ax.semilogy(wList, iterations, markersize=3, label=str(bc))
+    ax.semilogy(wList, iterations, marker='o', markersize=3, alpha=0.5, label=str(bc));
 ax.set_xticks(np.linspace(1,2,11))
 ax.grid(b=True, which='both')
 ax.set_xlabel(r"$w$")
@@ -427,7 +427,7 @@ for bc in bcs:
         iterations.append(iterN)
         maxDiffs.append(maxDiff)
     grids.append(g2d)
-    ax.semilogy(wList, iterations, markersize=3, label=str(bc));
+    ax.semilogy(wList, iterations, marker='o', markersize=3, alpha=0.5, label=str(bc));
 ax.set_xticks(np.linspace(1,2,11))
 ax.grid(b=True, which='both')
 ax.set_xlabel(r"$w$")
