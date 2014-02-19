@@ -1,3 +1,7 @@
+#!/usr/bin/env python
+
+#-- Analyze what is physical here! Numerical analysis if solutions are real or artifacts!; Periodic boundary conditions!
+
 """ From "A SURVEY OF COMPUTATIONAL PHYSICS", Python eBook Version
    by RH Landau, MJ Paez, and CC Bordeianu
    Copyright Princeton University Press, Princeton, 2011; Book  Copyright R Landau, 
@@ -6,96 +10,167 @@
 
 # Soliton.py: Solves Korteweg de Vries equation for a soliton.
 from __future__ import division
+from __future__ import with_statement
 from visual import *
 import matplotlib.pylab as p;
 from mpl_toolkits.mplot3d import Axes3D ;
 import numpy
+
+import numpy as np
+from pylab import ion
+import matplotlib as mpl
+from matplotlib.path import Path
+from matplotlib import pyplot as plt
+from matplotlib import animation
+from scipy.optimize import curve_fit
+from scipy.weave import inline, converters
+import mpmath as mp
+
+import sys
+import time
+import cPickle as pickle
+
+from JSAnimation import IPython_display, HTMLWriter
+
+from smartFormat import smartFormat
+from plotGoodies import plotDefaults
+
+plotDefaults()
+
 p.ion()
 
-ds = 0.4  # default: 0.4
-dt = 0.1 # default: 0.1
-stopTime = 200
-max = int(round(stopTime/dt))
+dx = 0.2  # default: 0.4
+dt = 0.001 # default: 0.1
+
 mu = 0.1
-eps = 0.2
-mx = int(131*0.4/ds)
-#mx = 131
-#mx = 262
+epsilon = 0.2
+
+fac = mu*dt/(dx**3)
+
+max_t = 200
+x_range = 800
+
+t_samp = np.arange(0, max_t+dt, dt)
+max_t_idx = len(t_samp)-1
+max_t = np.max(max_t)
+
+x_samp = np.arange(-x_range/2, x_range/2, dx)
+num_x = len(x_samp)
+max_x_idx = num_x-1
+x_range = np.max(x_samp)-np.min(x_samp)
 
 t_betw_plt = 1
 t_steps_betw_plt = int(t_betw_plt/dt)
 t_betw_plt = t_steps_betw_plt*dt
-mt = int(stopTime/t_betw_plt)
-u   = zeros( (mx, 3), float)
-spl = zeros( (mx, 1+int(stopTime/dt/t_steps_betw_plt)), float)
-m = 1
+mt  = int(max_t/t_betw_plt)
+u   = np.zeros( (num_x, 3), float)
+spl = np.zeros( (num_x, 1+int(max_t/dt/t_steps_betw_plt)), float)
 x_skip = 1
 
-for  i in range(0, mx):                                   # initial wave
-    u[i, 0] = 0.5*(1 -((math.exp(2*(0.2*ds*i-5.))-1)/(math.exp(2*(0.2*ds*i-5.))+1)))
-u[0,1] = 1. 
-u[0,2] = 1.
-u[mx-1,1] = 0. 
-u[mx-1,2] = 0.     # End points
+#-- Amplitude: 3c/\epsilon; temporal "frequency": sqrt(c/(4\mu))
+c = 4*mu
 
-for i in range (0, mx, x_skip):
-    spl[i, 0] = u[i, 0]    # initial wave 2x step
-fac = mu*dt/(ds**3)              
-print("Working. Please hold breath and wait while I count to "+str(20))
+#-- Define function for initial conditions...
+init_fn = lambda x: 0.5*(1-((mp.exp(2*x)-1)/(mp.exp(2*(x))+1)))
+init_fn = lambda x: 1 #0.5*(1-((mp.exp(2*x)-1)/(mp.exp(2*(x))+1)))
 
-for  i in range (1, mx-1):                              # First time step
-    a1 = eps*dt*(u[i + 1, 0] + u[i, 0] + u[i - 1, 0])/(ds*6.)     
-    if i > 1 and  i < mx-2: a2 = u[i+2,0]+2.*u[i-1,0]-2.*u[i+1,0]-u[i-2,0]
-    else:  a2 = u[i-1, 0] - u[i+1, 0]
+u[:,0] = np.array([ init_fn(x) for x in x_samp ])
+
+#-- ... and force all time-step endpoints to be the same as the IC endpoints
+u[0,1] = u[0,0] 
+u[0,2] = u[0,0]
+u[-1,1] = u[-1,0] 
+u[-1,2] = u[-1,0]
+
+spl[:, 0] = u[:, 0]
+
+for  i in range (1, num_x-1):                              # First time step
+    a1 = epsilon*dt*(u[i + 1, 0] + u[i, 0] + u[i - 1, 0])/(dx*6.)
+    if i > 1 and  i < num_x-2:
+        a2 = u[i+2,0]+2.*u[i-1,0]-2.*u[i+1,0]-u[i-2,0]
+    else: 
+        a2 = u[i-1, 0] - u[i+1, 0]
     a3 = u[i+1, 0] - u[i-1, 0] 
-    u[i, 1] = u[i, 0] - a1*a3 - fac*a2/3.        
+    u[i, 1] = u[i, 0] - a1*a3 - fac*a2/3.
 
+#-- C implementation
+j_start = 1
+j_end = max_t_idx+1
+c_integrator = """
+    double a1, a2, a3;
+    int m=1, i, j;
+    
+    //-- Iterate over time
+    for (j=j_start; j<=j_end; j++) {
+        //-- Iterate over spatial coordinates
+        for (i=1; i<num_x-1; i++) {
+            a1 = epsilon*dt*(u(i + 1, 1)  +  u(i, 1)  +  u(i - 1, 1))/(3.*dx);
+            if ((i > 1) && (i < num_x-2))
+                a2 = u(i+2,1) + 2.*u(i-1,1) - 2.*u(i+1,1) - u(i-2,1);
+            else
+                a2 = u(i-1, 1) - u(i+1, 1);
+            a3 = u(i+1, 1) - u(i-1, 1);
+            u(i, 2) = u(i,0) - a1*a3 - 2.*fac*a2/3.;
+        }
+        
+        //-- Save time slices to spl (values-to-plot) array
+        if (j % t_steps_betw_plt ==  0) {
+            for (i=1; i<num_x-2; i++)
+                spl(i, m) = u(i, 2);
+            m += 1;
+        }
+    
+        //-- Shift time sequence back one
+        for (i=0; i<num_x; i++) {
+            u(i, 0) = u(i, 1);
+            u(i, 1) = u(i, 2);
+        }
+    }
+"""
+inline(c_integrator,
+       ['u', 'spl', 'dt', 'dx', 'fac', 'epsilon', 'j_start',
+        'j_end', 'num_x', 't_steps_betw_plt'],
+       type_converters=converters.blitz)
 
+spl_ma = np.ma.array(spl, mask=np.isnan(spl), fill_value=0)
+cmap = p.cm.ocean
+cmap.set_bad(color='k',alpha=1)
 
-for j in range (1, max+1):                              # next time steps 
-    for i in range(1, mx-2):
-        a1 = eps*dt*(u[i + 1, 1]  +  u[i, 1]  +  u[i - 1, 1])/(3.*ds)
-        if i > 1 and i < mx-2:
-            a2 = u[i+2,1] + 2.*u[i-1,1] - 2.*u[i+1,1] - u[i-2,1]
-        else:
-            a2 = u[i-1, 1] - u[i+1, 1]  
-        a3 = u[i+1, 1] - u[i-1, 1] 
-        u[i, 2] = u[i,0] - a1*a3 - 2.*fac*a2/3.
-    if j%t_steps_betw_plt ==  0:                # plot every 10 "seconds"
-        for i in range (1, mx - 2): spl[i, m] = u[i, 2]
-        print(m)  
-        m = m + 1     
-    for k in range(0, mx):                 # recycle array to save memory
-        u[k, 0] = u[k, 1]                
-        u[k, 1] = u[k, 2] 
+#-- X coordinates
+x = list(range(0, num_x, x_skip))
 
-x = list(range(0, mx, x_skip))                 # plot every spatial point
-y = list(range(0, mt, t_steps_betw_plt))     # plot line every (?) t steps
+#-- Y coordinates
+y = list(range(0, mt, t_steps_betw_plt))
+
+#-- 2D grids with X and Y coordinates
 X, Y = p.meshgrid(x, y)
-def functz(spl):                           # Function returns temperature
-    z = spl[X, Y]       
+def functz(spl):
+    z = spl[X, Y] 
     return z
+
 #s = surf(x, y, 20*spl)
 #fig  = p.figure(1)                                         # create figure
 #fig.clf()
 #ax = Axes3D(fig)                                              # plot axes
-#ax.plot_surface(X*ds*x_skip, Y*dt*t_steps_betw_plt, spl[X, Y],
+#ax.plot_surface(X*dx*x_skip, Y*dt*t_steps_betw_plt, spl[X, Y],
 #                cmap=p.cm.bone)#  color = 'r')                            # red wireframe
-#ax.plot_surface(X*ds*x_skip, Y*dt*t_steps_betw_plt, spl[X, Y],
+#ax.plot_surface(X*dx*x_skip, Y*dt*t_steps_betw_plt, spl[X, Y],
 #                cmap=p.cm.bone)#  color = 'r')                            # red
 #ax.set_xlabel('Positon')                                     # label axes
 #ax.set_ylabel('Time')
 #ax.set_zlabel('Disturbance')
-
-f2=p.figure(2)
+#spl = spl-numpy.min(spl)
+#spl = spl/numpy.max(spl)
+f2=p.figure(figsize=(10,4), dpi=90)
 f2.clf()
 ax2=f2.add_subplot(111)
-ax2.imshow((numpy.transpose(spl)),interpolation='bicubic',cmap=p.cm.ocean)
+ax2.imshow(spl_ma.T, interpolation='nearest', cmap=p.cm.ocean,
+           vmin=0, vmax=2, origin='lower')
 p.xlabel(r"Position index, $x/\Delta x$")
 p.ylabel(r"Time index, $t/\Delta t$")
-p.axis('normal')
-p.axis((0,numpy.max(x),0,numpy.max(y)))
+p.axis('image')
+#p.axis((0,numpy.max(x),0,numpy.max(y)))
 p.tight_layout()
 p.show()                                # Show figure, close Python shell
-print("That's all folks!") 
-
+f2.savefig('output.png', dpi=600)
+x=raw_input()
