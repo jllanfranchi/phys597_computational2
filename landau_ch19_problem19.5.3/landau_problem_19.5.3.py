@@ -446,16 +446,29 @@ for t_idx in xrange(0, size(spl_ma, 1)):
 
 # <codecell>
 
+generateColorCycle(cmap=p.cm.spectral, n_colors=len(track_tinds)) #len(track_xinds));
+
+# <codecell>
+
+f = figure(12)
+f.clf()
+ax = f.add_subplot(111)
+for (t,x) in zip(track_tinds, track_xinds):
+    ax.plot(x,t,lw=1,alpha=1)
+p.xlabel(r"Position, $x$")
+p.ylabel(r"Time, $t$");
+
+# <codecell>
+
 cmap = p.cm.ocean
 cmap.set_bad(color='k',alpha=1)
 
-f2=p.figure(figsize=(10,10), dpi=40)
+f2=p.figure(13, figsize=(7,7), dpi=30)
 f2.clf()
 ax2=f2.add_subplot(111)
 ax2.imshow(spl_ma.T, interpolation='bicubic', cmap=p.cm.ocean,
            vmin=0, vmax=2, origin='lower')
 
-generateColorCycle(cmap=p.cm.Oranges, n_colors=10) #len(track_xinds))
 for (t,x) in zip(track_tinds, track_xinds):
     ax2.plot(x,t,lw=1,color='r',alpha=1)
 p.xlabel(r"Position, $x$")
@@ -463,12 +476,18 @@ p.ylabel(r"Time, $t$")
 p.axis('image')
 p.xticks([])
 p.yticks([])
-ax2.set_xlim(3000,5000)
+ax2.set_xlim(3700,4300)
 title(r"Detail, central region of above plot; peak tracks added in red")
 #p.axis((0,numpy.max(x),0,numpy.max(y)))
 p.tight_layout()
 p.show()
 f2.savefig('output3.png', dpi=600)
+
+# <markdowncell>
+
+# This looks pretty good, but not as smooth as I'd expect. It may be due to the fact that the recorded data comes only once per second, while the actual simulation runs at 1000$\times$ that rate.
+# 
+# (I don't store all of that data because it was causing memory overflow. One solution would be to extract the peak information *during* the simulation, storing only the peak track info or other estimated parameters, while discarding the rest of the data that is generated between the 1 s intervals). Another solution is to write the data to disk during the simulation, and then post-process it one chunk at a time.)
 
 # <markdowncell>
 
