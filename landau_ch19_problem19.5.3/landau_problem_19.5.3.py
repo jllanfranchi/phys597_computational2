@@ -308,6 +308,10 @@ p.tight_layout()
 p.show()
 f2.savefig('output2.png', dpi=600)
 
+# <headingcell level=2>
+
+# Analyze soliton-like behavior in the data
+
 # <markdowncell>
 
 # Locate peaks, crudely, in the data
@@ -328,9 +332,10 @@ print len(pk_indices) #, "peaks identified"
 
 # <codecell>
 
-prom_thresh = 0.05
+prom_thresh = 0.075
 good_pk_ind = []
 good_pk_amp = []
+#-- Run through all time slices
 for idx in xrange(0, size(spl_ma,1)):
     good_pk_ind.append([])
     good_pk_amp.append([])
@@ -339,6 +344,8 @@ for idx in xrange(0, size(spl_ma,1)):
         continue
     
     amp = spl_ma[:,idx]
+    
+    #-- Loop over each peak located at this time slice
     for pkindind in xrange(0,len(pk_indices[idx])):
         pkind = pk_indices[idx][pkindind]
         if pkindind == 0:
@@ -361,7 +368,7 @@ for idx in xrange(0, size(spl_ma,1)):
 
 # <markdowncell>
 
-# Plot data and the peaks that were found (for one timeslice) to verify the above algorithm is working
+# Plot data and the peaks that were found (for one timeslice) to check the above algorithm is working reasonably
 
 # <codecell>
 
@@ -381,9 +388,87 @@ title(r"Slice at $t="+str(t_samp_skip[ind])+r"$")
 xlabel(r"$x$")
 tight_layout();
 
+# <markdowncell>
+
+# Looks okay, at least for this time slice!
+# 
+# Now try to track the peaks as they move through time
+
 # <codecell>
 
-len(t_samp_skip)
+#-- NOTE: algo assumes tracks are created but *not destroyed*!
+track_xinds = []
+track_tinds = []
+track_xs = []
+track_ts = []
+
+for t_idx in xrange(0, size(spl_ma, 1)):
+    time_now = t_samp_skip[t_idx]
+    #-- Sort the peaks in descending-amplitude order
+    pk_indices = np.array(good_pk_ind[t_idx])
+    x_pk = x_samp[list(pk_indices)]
+    pk_sortind = pk_indices[list(np.argsort(x_pk)[::-1])]
+    unpaired_pk_ind = list(pk_sortind.copy())
+    
+    #-- Loop through each of the previously-ID'd tracks and find
+    #   the peak in the current time slice closest to the track's
+    #   last x-value
+    for last_pk_n in xrange(0,len(track_xs)):
+        if len(unpaired_pk_ind) == 0:
+            break
+        x_pk = x_samp[unpaired_pk_ind]
+        last_pk_x = track_xs[last_pk_n][-1]
+        dist = np.abs(x_pk - last_pk_x)
+        
+        #-- If same dist, argmin returns first match, which will
+        #   correspond to the peak with highest amplitude
+        closest_ind = unpaired_pk_ind[np.argmin(dist)]
+
+        #-- Record this peak in its track
+        track_xinds[last_pk_n].append(closest_ind)
+        track_xs[last_pk_n].append(x_samp[closest_ind])
+        track_tinds[last_pk_n].append(t_idx)
+        track_ts[last_pk_n].append(time_now)
+        
+        #-- Record that this peak has found its family
+        unpaired_pk_ind.remove(closest_ind)
+    
+    #-- Create new tracks for any remaining unpaired indices
+    for pk_ind in unpaired_pk_ind:
+        track_xinds.append([pk_ind])
+        track_xs.append([x_samp[pk_ind]])
+        track_tinds.append([t_idx])
+        track_ts.append([time_now])
+
+# <markdowncell>
+
+# Plot the tracks individually and on top of the colormapped image to see if they look reasonable
+
+# <codecell>
+
+cmap = p.cm.ocean
+cmap.set_bad(color='k',alpha=1)
+
+f2=p.figure(figsize=(10,10), dpi=40)
+f2.clf()
+ax2=f2.add_subplot(111)
+ax2.imshow(spl_ma.T, interpolation='bicubic', cmap=p.cm.ocean,
+           vmin=0, vmax=2, origin='lower')
+
+generateColorCycle(cmap=p.cm.Oranges, n_colors=10) #len(track_xinds))
+for (t,x) in zip(track_tinds, track_xinds):
+    ax2.plot(x,t,lw=1,color='r',alpha=1)
+p.xlabel(r"Position, $x$")
+p.ylabel(r"Time, $t$")
+p.axis('image')
+p.xticks([])
+p.yticks([])
+ax2.set_xlim(3000,5000)
+title(r"Detail, central region of above plot; peak tracks added in red")
+#p.axis((0,numpy.max(x),0,numpy.max(y)))
+p.tight_layout()
+p.show()
+f2.savefig('output3.png', dpi=600)
 
 # <markdowncell>
 
