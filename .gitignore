@@ -7,7 +7,8 @@ phys597_scrapheap/
 .ipynb_checkpoints/
 *.xcf
 *.swp
-
+*.pk
+*.pkl
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
