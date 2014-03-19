@@ -11,6 +11,8 @@ import matplotlib as mpl
 import matplotlib.pylab as p
 from matplotlib import pyplot as plt
 from matplotlib import animation
+
+#from numba import jit, autojit
 ion()
 
 # <markdowncell>
@@ -19,9 +21,12 @@ ion()
 
 # <codecell>
 
+#@autojit
 def SOR_step(vx, vy, P, Nx, Ny, boundaries=[], omega=1):
-    for i in range(1,Nx-1):
-        for j in range(1,Ny-1):
+    #for i in range(1,Nx-1):
+    for i in range(Nx-2,0,-1):
+        #for j in range(1,Ny-1):
+        for j in range(Ny-2,0,-1):
             if (i,j) not in boundaries:
                 new_vx = 0.25*(vx[i+1,j] + vx[i-1,j] + vx[i,j+1] + vx[i,j-1] \
                            -h/2.*vx[i,j]*(vx[i+1,j]-vx[i-1,j]) \
@@ -38,15 +43,15 @@ def SOR_step(vx, vy, P, Nx, Ny, boundaries=[], omega=1):
 
 # <codecell>
 
-Nx = 100
-Ny = 100
-h = 2
+Nx = 200
+Ny = 200
+h = 1
 L = 3
 nu = 1
 rho = 10e3
 V0 = 1
 domain_width = 10 # m
-domain_height = 5 # m
+domain_height = 2 # m
 omega = 1.2
 
 # <markdowncell>
@@ -74,19 +79,19 @@ plate_x1 = int(np.round(Nx/2+L/2/pixel_width))
 
 # <codecell>
 
-vx[:,0] = 0 #bottom
-vx[:,-1] = 0 #top
-vx[0,:] = V0 #left
-vx[-1,:] = 0 #rigfht
+vx[:,0]  = 1 #bottom
+vx[:,-1] = 1 #top
+vx[0,:]  = V0 #left
+vx[-1,:] = 1 #rigfht
 
-vy[0,:] = 0
+vy[0,:]  = 0
 vy[-1,:] = 0
-vy[:,0] = 0
+vy[:,0]  = 0
 vy[:,-1] = 0
 
-P[0,:] = 0
+P[0,:]  = 0
 P[-1,:] = 0
-P[:,0] = 0
+P[:,0]  = 0
 P[:,-1] = 0
 
 # <markdowncell>
@@ -127,7 +132,7 @@ title(r"Intitial conditions, $v_x$")
 iteration = 0
 error = 100
 old_vx = vx.copy()
-while np.max(error) > 0.0001:
+while np.max(error) > 0.01:
     SOR_step(vx, vy, P, Nx, Ny, boundaries=boundaries, omega=omega)
     error = np.abs(vx-old_vx)
     old_vx = vx.copy()
@@ -154,4 +159,7 @@ f2.colorbar(im2, ax=ax2)
 title(r"Converged solution, $v_x(x,y)$")
 xlabel(r"$x$"); ylabel(r"$y$")
 tight_layout()
+
+# <codecell>
+
 
